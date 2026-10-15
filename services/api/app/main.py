@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import init_db
-from app.routers import wallets, search, merchants, webhooks
+from app.routers import wallets, search, merchants, webhooks, checkout
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -30,6 +30,7 @@ app.include_router(wallets.router)
 app.include_router(search.router)
 app.include_router(merchants.router)
 app.include_router(webhooks.router)
+app.include_router(checkout.router)
 
 @app.get("/")
 async def root():
