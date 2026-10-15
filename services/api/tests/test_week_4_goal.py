@@ -134,7 +134,8 @@ async def test_week_4_goal_complete_agent_mission_e2e(monkeypatch, mock_ml_listi
         assert meli_data["status"] == "pending_human_approval"
         assert meli_data["execution_type"] == "human_handoff"
         assert meli_data["handoff_url"] is not None
-        assert "quantity=2" in meli_data["handoff_url"]
+        assert "produto.mercadolivre.com.br/MLB-1005" in meli_data["handoff_url"]
+        assert "quantity=" not in meli_data["handoff_url"]
 
     total_mission_time = time.perf_counter() - mission_start_time
 
