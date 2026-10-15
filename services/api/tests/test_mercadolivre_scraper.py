@@ -65,3 +65,30 @@ async def test_mercadolivre_search_async(monkeypatch):
     assert len(results) == 3
     assert results[0].product_id == "MLB-1001"
 
+
+def test_mercadolivre_parser_extracts_poly_card_listings():
+    poly_html = """
+    <li class="ui-search-layout__item">
+      <div class="andes-card poly-card">
+        <h3 class="poly-component__title-wrapper">
+          <a href="https://produto.mercadolivre.com.br/MLB-99901-sketchbook-a4" class="poly-component__title">
+            Caderno Sketchbook Desenho A4 240g
+          </a>
+        </h3>
+        <div class="poly-component__price">
+          <span class="andes-money-amount">
+            <span class="andes-money-amount__fraction">42</span>
+            <span class="andes-money-amount__cents">90</span>
+          </span>
+        </div>
+      </div>
+    </li>
+    """
+    scraper = MercadoLivreScraper()
+    results = scraper.parse_search_results(poly_html, limit=1)
+    assert len(results) == 1
+    assert results[0].product_id == "MLB-99901"
+    assert "Caderno Sketchbook" in results[0].title
+    assert results[0].display_price == 42.90
+
+

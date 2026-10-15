@@ -1,28 +1,22 @@
 import re
-from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import quote
 from curl_cffi.requests import AsyncSession
 from selectolax.lexbor import LexborHTMLParser
+from app.services.scrapers.base import BaseScraper, RawListing
 
 
-@dataclass
-class RawListing:
-    product_id: str
-    title: str
-    url: str
-    display_price: float
-    cash_price: Optional[float] = None
-    seller_name: str = ""
-    seller_reputation: str = "standard"
-    image_url: Optional[str] = None
-
-
-class MercadoLivreScraper:
+class MercadoLivreScraper(BaseScraper):
     """
     Scraper de alto desempenho para o Mercado Livre utilizando
     curl_cffi (evasão TLS fingerprint Chrome 124) e selectolax (parser HTML Lexbor em C).
     """
+
+    domain = "mercadolivre.com.br"
+    region = "BR"
+    currency = "BRL"
+    execution_type = "human_handoff"
+    is_verified = True
 
     def parse_price(self, text: str) -> Optional[float]:
         if not text:
@@ -46,19 +40,21 @@ class MercadoLivreScraper:
     def parse_search_results(self, html: str, limit: int = 10) -> list[RawListing]:
         parser = LexborHTMLParser(html)
         items = parser.css(".ui-search-layout__item")
+        if not items:
+            items = parser.css(".poly-card")
         listings: list[RawListing] = []
 
         for item in items:
             if len(listings) >= limit:
                 break
 
-            link_el = item.css_first("a.ui-search-link")
+            link_el = item.css_first("a.poly-component__title") or item.css_first("a.ui-search-link") or item.css_first("a")
             if not link_el:
                 continue
 
             url = link_el.attributes.get("href", "")
             title_el = item.css_first(".ui-search-item__title")
-            title = title_el.text(strip=True) if title_el else link_el.attributes.get("title", "")
+            title = title_el.text(strip=True) if title_el else link_el.text(strip=True) or link_el.attributes.get("title", "")
             if not title:
                 continue
 
@@ -77,7 +73,7 @@ class MercadoLivreScraper:
                 display_price = 0.0
 
             cash_price = None
-            pix_el = item.css_first(".ui-search-price__discount-payment")
+            pix_el = item.css_first(".ui-search-price__discount-payment") or item.css_first(".poly-component__discount-payment")
             if pix_el:
                 pix_text = pix_el.text(strip=True)
                 pix_match = re.search(r"R\$\s*([\d\.,]+)", pix_text)
@@ -85,7 +81,7 @@ class MercadoLivreScraper:
                     cash_price = self.parse_price(pix_match.group(1))
 
             official_el = item.css_first(".ui-search-official-store-label")
-            seller_info_el = item.css_first(".ui-search-item__seller-info")
+            seller_info_el = item.css_first(".ui-search-item__seller-info") or item.css_first(".poly-component__seller")
 
             if official_el:
                 seller_name = official_el.text(strip=True)
@@ -107,7 +103,7 @@ class MercadoLivreScraper:
                 seller_name = ""
                 seller_reputation = "standard"
 
-            img_el = item.css_first("img.ui-search-result-image__element")
+            img_el = item.css_first("img.poly-component__picture") or item.css_first("img.ui-search-result-image__element") or item.css_first("img")
             image_url = img_el.attributes.get("src") or img_el.attributes.get("data-src") if img_el else None
 
             listings.append(
@@ -128,6 +124,11 @@ class MercadoLivreScraper:
     async def search(self, query: str, limit: int = 10) -> list[RawListing]:
         encoded_query = quote(query)
         url = f"https://lista.mercadolivre.com.br/{encoded_query}"
-        async with AsyncSession(impersonate="chrome124", timeout=10.0) as session:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "pt-BR,pt;q=0.9",
+        }
+        async with AsyncSession(timeout=10.0, headers=headers) as session:
             resp = await session.get(url)
             return self.parse_search_results(resp.text, limit=limit)
