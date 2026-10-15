@@ -10,7 +10,7 @@ export function registerCheckoutTool(server: McpServer, client: AcpApiClient) {
       wallet_id: z.string().min(1).describe("ID da carteira pré-paga do ACP"),
       order_items: z.array(
         z.object({
-          product_id_or_url: z.string().describe("ID ou URL do produto"),
+          product_id_or_url: z.string().describe("URL direta do produto retornada na busca (preferencial, garante link canônico 100% autêntico) ou ID do produto (ex: 'MLB-1001')"),
           quantity: z.number().int().min(1).describe("Quantidade a ser comprada"),
           unit_price: z.number().positive().describe("Preço unitário em Reais"),
           merchant_domain: z.string().describe("Domínio da loja (ex: 'mercadolivre.com.br', 'lojaparceira.com.br')")
