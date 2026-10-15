@@ -1,6 +1,6 @@
 import os
 import pytest
-from app.services.scrapers.mercadolivre import MercadoLivreScraper, RawListing
+from app.services.scrapers.mercadolivre import MercadoLivreScraper, RawListing, clean_meli_url
 
 FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixtures", "mercadolivre_search.html")
 
@@ -92,3 +92,11 @@ def test_mercadolivre_parser_extracts_poly_card_listings():
     assert results[0].display_price == 42.90
 
 
+def test_clean_meli_url_catalog_product():
+    raw = "https://www.mercadolivre.com.br/caderno-sketchbook-desenho-artistico/p/MLB2096580517#polycard_client=search-desktop&be_origin=backend&tracking_id=123"
+    assert clean_meli_url(raw) == "https://www.mercadolivre.com.br/caderno-sketchbook-desenho-artistico/p/MLB2096580517"
+
+
+def test_clean_meli_url_standard_item():
+    raw = "https://produto.mercadolivre.com.br/MLB-4286916381-sketchbook-caderno-desenho-_JM?searchVariation=123&tracking_id=456#polycard_client=search"
+    assert clean_meli_url(raw) == "https://produto.mercadolivre.com.br/MLB-4286916381-sketchbook-caderno-desenho-_JM"

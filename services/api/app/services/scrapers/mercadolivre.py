@@ -1,9 +1,21 @@
 import re
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 from curl_cffi.requests import AsyncSession
 from selectolax.lexbor import LexborHTMLParser
 from app.services.scrapers.base import BaseScraper, RawListing
+
+
+def clean_meli_url(raw_url: str) -> str:
+    """
+    Higieniza a URL do Mercado Livre descartando fragmentos (#polycard_client...)
+    e parâmetros internos de rastreamento de busca (&tracking_id, &sid, &searchVariation, etc.),
+    preservando o domínio original e o path canônico (/p/MLB... ou produto.mercadolivre.com.br/MLB-...).
+    """
+    if not raw_url:
+        return ""
+    parts = urlsplit(raw_url)
+    return urlunsplit((parts.scheme or "https", parts.netloc, parts.path, "", ""))
 
 
 class MercadoLivreScraper(BaseScraper):
@@ -52,7 +64,7 @@ class MercadoLivreScraper(BaseScraper):
             if not link_el:
                 continue
 
-            url = link_el.attributes.get("href", "")
+            url = clean_meli_url(link_el.attributes.get("href", ""))
             title_el = item.css_first(".ui-search-item__title")
             title = title_el.text(strip=True) if title_el else link_el.text(strip=True) or link_el.attributes.get("title", "")
             if not title:
