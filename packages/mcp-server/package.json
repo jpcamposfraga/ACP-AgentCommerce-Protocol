@@ -2,6 +2,7 @@
   "name": "@agent-commerce/mcp-server",
   "version": "0.1.0",
   "description": "Model Context Protocol (MCP) server for AgentCommerce Protocol (ACP)",
+  "type": "module",
   "main": "dist/index.js",
   "bin": {
     "acp-mcp": "./dist/index.js"
@@ -9,7 +10,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts"
+    "test": "node --experimental-strip-types --test tests/**/*.test.ts",
+    "dev": "node --experimental-strip-types src/index.ts"
   },
   "keywords": [
     "mcp",
