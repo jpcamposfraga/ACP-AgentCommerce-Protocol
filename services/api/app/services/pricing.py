@@ -4,7 +4,8 @@ from app.schemas.search import ProductPricing
 def calculate_effective_price(
     display_price: float,
     cash_price: float | None = None,
-    fee_pct: float | None = None
+    fee_pct: float | None = None,
+    currency: str = "BRL"
 ) -> ProductPricing:
     """
     Calcula o Menor Preço Efetivo para agentes autônomos.
@@ -30,5 +31,6 @@ def calculate_effective_price(
         best_effective_price=effective_price,
         best_payment_method=method,
         cash_discount_pct=discount_pct,
-        fee_acp_estimated=fee
+        fee_acp_estimated=fee,
+        currency=currency
     )

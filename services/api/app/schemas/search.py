@@ -10,6 +10,18 @@ class SearchRequest(BaseModel):
         default="all",
         description="Filtro de tipos de lojistas"
     )
+    region: Literal["BR", "US", "GLOBAL"] = Field(
+        default="BR",
+        description="Região geográfica para busca de ofertas"
+    )
+    currency: Literal["BRL", "USD", "EUR"] = Field(
+        default="BRL",
+        description="Moeda esperada para exibição e cálculo"
+    )
+    allowed_domains: list[str] | None = Field(
+        default=None,
+        description="Whitelist opcional de domínios confiáveis para restringir a busca"
+    )
 
 class ProductPricing(BaseModel):
     display_price: float = Field(..., description="Preço de vitrine / parcelado")
@@ -17,6 +29,7 @@ class ProductPricing(BaseModel):
     best_payment_method: str = Field(default="pix", description="Método de pagamento com maior desconto")
     cash_discount_pct: float = Field(default=0.0, description="Percentual de desconto à vista")
     fee_acp_estimated: float = Field(default=0.0, description="Taxa de intermediação estimada do ACP")
+    currency: str = Field(default="BRL", description="Moeda de cotação")
 
 class MerchantInfo(BaseModel):
     domain: str = Field(..., description="Domínio da loja ou marketplace")
