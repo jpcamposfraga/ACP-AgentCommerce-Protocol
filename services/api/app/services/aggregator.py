@@ -8,6 +8,7 @@ from app.schemas.search import (
 from app.services.scrapers.registry import ScraperRegistry
 from app.services.classifier import JevClassifier
 from app.services.pricing import calculate_effective_price
+from app.services.product_registry import product_registry
 
 
 class SearchAggregator:
@@ -80,6 +81,7 @@ class SearchAggregator:
                 if request.merchant_filter == "verified_only" and not merchant.is_verified:
                     continue
 
+                product_registry.register(raw.product_id, raw.url)
                 results.append(
                     ProductSearchResult(
                         product_id=raw.product_id,
