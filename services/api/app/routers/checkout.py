@@ -8,15 +8,17 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.models.wallet import Wallet
 from app.models.transaction import Transaction
-from app.schemas.checkout import CheckoutRequest, CheckoutResponse, PaymentReceipt
+from app.schemas.checkout import CheckoutRequest, CheckoutResponse, PaymentReceipt, VirtualCardDetails
 from app.services.connectors.hybrid_meli import build_meli_handoff_url
 from app.services.connectors.storefront import StorefrontPartnerClient
 from app.services.baas import BaaSPixClient
+from app.services.virtual_card import VirtualCardService
 
 router = APIRouter(prefix="/api/v1/checkout", tags=["checkout"])
 
 storefront_client = StorefrontPartnerClient()
 baas_client = BaaSPixClient()
+vcard_service = VirtualCardService()
 
 CLOSED_MARKETPLACES = {
     "mercadolivre.com.br",
@@ -117,6 +119,39 @@ async def process_checkout(
             detail="Falha no débito atômico. Saldo insuficiente ou concorrência detectada."
         )
 
+    # Se a preferência for virtual card ou loja sem Pix cadastrado
+    if request.preferred_autonomous_payment == "virtual_card":
+        vcard = await vcard_service.issue_ephemeral_card(
+            amount=total_order_amount,
+            currency=wallet.currency,
+            merchant_domain=primary_domain,
+            wallet_id=request.wallet_id
+        )
+        order_id = f"order_vcard_{uuid.uuid4().hex[:8]}"
+        transaction = Transaction(
+            wallet_id=request.wallet_id,
+            amount=total_needed,
+            platform_fee=acp_fee,
+            net_amount=total_order_amount,
+            type="DEBIT_PURCHASE_VCARD",
+            status="COMPLETED",
+            reference_id=vcard.card_token,
+            description=f"Compra autônoma via Cartão Virtual #{order_id} em {primary_domain}"
+        )
+        db.add(transaction)
+        await db.commit()
+
+        return CheckoutResponse(
+            order_id=order_id,
+            status="completed",
+            execution_type="autonomous",
+            total_debited=total_needed,
+            handoff_url=None,
+            receipt=None,
+            virtual_card=vcard,
+            message="Compra autônoma aprovada com Cartão Virtual Efêmero gerado com limite estrito."
+        )
+
     # Criação do pedido na Storefront API da loja parceira
     partner_order = await storefront_client.create_order(
         items=request.order_items,
@@ -158,5 +193,6 @@ async def process_checkout(
         total_debited=total_needed,
         handoff_url=None,
         receipt=receipt,
+        virtual_card=None,
         message="Compra autônoma concluída com sucesso via saldo pré-pago e liquidação Pix."
     )

@@ -20,6 +20,20 @@ class CheckoutRequest(BaseModel):
         default=None,
         description="Chave de idempotência para prevenção de duplicações"
     )
+    preferred_autonomous_payment: Literal["auto", "pix", "virtual_card"] = Field(
+        default="auto",
+        description="Método de pagamento autônomo preferencial"
+    )
+
+
+class VirtualCardDetails(BaseModel):
+    card_token: str = Field(..., description="Token seguro do cartão virtual efêmero")
+    masked_pan: str = Field(..., description="Número mascarado do cartão para identificação")
+    cvv: str = Field(..., description="Código de segurança de 3 dígitos")
+    expiration: str = Field(..., description="Data de expiração no formato MM/AA")
+    exact_amount_locked: float = Field(..., description="Limite estrito travado para a compra")
+    currency: str = Field(default="BRL", description="Moeda de liquidação")
+    status: str = Field(default="ACTIVE_ONE_TIME", description="Status do cartão")
 
 
 class PaymentReceipt(BaseModel):
@@ -47,5 +61,9 @@ class CheckoutResponse(BaseModel):
     receipt: PaymentReceipt | None = Field(
         default=None,
         description="Comprovante de liquidação financeira instantânea"
+    )
+    virtual_card: VirtualCardDetails | None = Field(
+        default=None,
+        description="Detalhes do cartão virtual efêmero gerado para liquidação"
     )
     message: str | None = Field(default=None, description="Mensagem descritiva ou motivo de falha")
