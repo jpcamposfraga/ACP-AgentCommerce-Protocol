@@ -1,6 +1,6 @@
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { AcpApiClient } from '../src/api-client.ts';
+import { AcpApiClient } from '../dist/api-client.js';
 
 describe('AcpApiClient', () => {
   let originalFetch: typeof globalThis.fetch;

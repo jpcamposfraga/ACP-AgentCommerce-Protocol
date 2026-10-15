@@ -10,8 +10,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "node --experimental-strip-types --test tests/**/*.test.ts",
-    "dev": "node --experimental-strip-types src/index.ts"
+    "test": "npm run build && node --test tests/**/*.test.ts",
+    "dev": "npm run build && node dist/index.js"
   },
   "keywords": [
     "mcp",

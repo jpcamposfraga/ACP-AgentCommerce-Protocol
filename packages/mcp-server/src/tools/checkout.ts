@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { AcpApiClient } from '../api-client.ts';
+import { AcpApiClient } from '../api-client.js';
 
 export function registerCheckoutTool(server: McpServer, client: AcpApiClient) {
   server.tool(

@@ -117,7 +117,7 @@ export class AcpApiClient {
     if (!res.ok) {
       let errorDetail = res.statusText;
       try {
-        const errorJson = await res.json();
+        const errorJson: any = await res.json();
         errorDetail = errorJson.detail || JSON.stringify(errorJson);
       } catch {
         // Ignora erro de parse caso a resposta não seja json

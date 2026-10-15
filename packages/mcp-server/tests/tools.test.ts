@@ -1,8 +1,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { registerAllTools } from '../src/tools/index.ts';
-import { AcpApiClient } from '../src/api-client.ts';
+import { registerAllTools } from '../dist/tools/index.js';
+import { AcpApiClient } from '../dist/api-client.js';
 
 describe('MCP Tools Registration', () => {
   test('registers all 4 official ACP tools on McpServer', () => {

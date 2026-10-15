@@ -1,9 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { AcpApiClient } from '../api-client.ts';
-import { registerSearchTool } from './search.ts';
-import { registerTrackTool } from './track.ts';
-import { registerMerchantTool } from './merchant.ts';
-import { registerCheckoutTool } from './checkout.ts';
+import { AcpApiClient } from '../api-client.js';
+import { registerSearchTool } from './search.js';
+import { registerTrackTool } from './track.js';
+import { registerMerchantTool } from './merchant.js';
+import { registerCheckoutTool } from './checkout.js';
 
 export function registerAllTools(server: McpServer, client: AcpApiClient) {
   registerSearchTool(server, client);
