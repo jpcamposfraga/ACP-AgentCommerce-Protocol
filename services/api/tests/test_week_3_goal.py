@@ -92,7 +92,8 @@ async def test_week_3_goal_autonomous_and_hybrid_execution():
         assert data_hybrid["execution_type"] == "human_handoff"
         assert data_hybrid["total_debited"] == 0.0
         assert data_hybrid["handoff_url"] is not None
-        assert "produto.mercadolivre.com.br/MLB-998877?quantity=2" in data_hybrid["handoff_url"]
+        assert "produto.mercadolivre.com.br/MLB-998877" in data_hybrid["handoff_url"]
+        assert "quantity=" not in data_hybrid["handoff_url"]
         assert data_hybrid["receipt"] is None
 
     # ==========================================

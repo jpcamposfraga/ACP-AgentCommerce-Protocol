@@ -1,5 +1,6 @@
 import re
 from urllib.parse import urlparse, urlunparse
+from app.services.product_registry import product_registry
 
 ALLOWED_MELI_DOMAINS = {
     "mercadolivre.com.br",
@@ -11,34 +12,46 @@ ALLOWED_MELI_DOMAINS = {
 
 def build_meli_handoff_url(product_id_or_url: str, quantity: int = 1) -> str:
     """
-    Gera link direto e higienizado para o carrinho/checkout do Mercado Livre,
-    removendo parâmetros maliciosos ou de rastreamento e configurando a quantidade.
+    Gera link direto e higienizado para a página canônica do produto no Mercado Livre,
+    removendo parâmetros de rastreamento ou fragments (#polycard_client...) e sem injetar
+    parâmetros que causam erro 404 / bloqueio do WAF (como ?quantity=1).
+    Se receber apenas o ID, tenta resolver via ProductRegistry para recuperar o link autêntico.
     """
-    qty = max(1, quantity)
+    target = product_id_or_url.strip()
 
-    # 1. Se for uma URL completa
-    if product_id_or_url.startswith("http://") or product_id_or_url.startswith("https://"):
-        parsed = urlparse(product_id_or_url)
+    # 1. Se for uma URL completa HTTP / HTTPS
+    if target.startswith("http://") or target.startswith("https://"):
+        parsed = urlparse(target)
         domain = parsed.netloc.lower()
         if not any(domain == allowed or domain.endswith("." + allowed) for allowed in ALLOWED_MELI_DOMAINS):
             raise ValueError(f"Domínio inválido para handoff Mercado Livre: {domain}")
 
-        clean_url = urlunparse((
+        # Retorna URL canônica limpa (esquema, domínio e caminho), descartando query e fragmentos
+        return urlunparse((
             "https",
             parsed.netloc,
             parsed.path,
             "",
-            f"quantity={qty}",
+            "",
             "",
         ))
-        return clean_url
 
-    # 2. Se for um ID (ex: MLB-1001 ou MLB1001)
-    cleaned_id = product_id_or_url.strip().upper()
+    # 2. Se for um ID, primeiro tenta resolver no ProductRegistry (cache de busca real)
+    cached_url = product_registry.get_url(target)
+    if cached_url:
+        return build_meli_handoff_url(cached_url, quantity=quantity)
+
+    # 3. Fallback se não estiver no registro
+    cleaned_id = target.upper()
     if not re.match(r"^MLB-?\d+", cleaned_id):
         raise ValueError(f"Identificador inválido do Mercado Livre: {product_id_or_url}")
 
-    if not cleaned_id.startswith("MLB-"):
-        cleaned_id = "MLB-" + cleaned_id[3:]
+    digits = re.sub(r"[^\d]", "", cleaned_id)
 
-    return f"https://produto.mercadolivre.com.br/{cleaned_id}?quantity={qty}"
+    # Se for catálogo (formato MLB seguido de 8 a 11 dígitos sem hífen original)
+    if not cleaned_id.startswith("MLB-") and len(digits) >= 8:
+        return f"https://www.mercadolivre.com.br/p/MLB{digits}"
+
+    # Se for item padrão com hífen
+    standard_id = cleaned_id if cleaned_id.startswith("MLB-") else f"MLB-{digits}"
+    return f"https://produto.mercadolivre.com.br/{standard_id}"
