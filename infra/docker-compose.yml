@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: acp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-acp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-acp_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-acp_database}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-acp_user} -d ${POSTGRES_DB:-acp_database}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: acp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ../services/api
+      dockerfile: ../infra/Dockerfile
+    container_name: acp-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-acp_user}:${POSTGRES_PASSWORD:-acp_secure_password}@postgres:5432/${POSTGRES_DB:-acp_database}
+      REDIS_URL: redis://redis:6379/0
+      PORT: 8000
+      ENV: ${ENV:-development}
+      ACP_PLATFORM_FEE_PCT: ${ACP_PLATFORM_FEE_PCT:-0.02}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../services/api:/app
+
+volumes:
+  pgdata:
+  redisdata:
