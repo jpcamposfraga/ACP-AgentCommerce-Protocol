@@ -14,9 +14,22 @@ class JevClassifier:
     """
 
     ACCESSORY_KEYWORDS = {
-        "capa", "capinha", "película", "pelicula", "case", "bumper",
+        "capinha", "película", "pelicula", "case", "bumper",
         "skin", "adesivo", "cordão", "pulseira"
     }
+
+    # Atributos legítimos de produtos que contêm a palavra "capa" mas não são acessórios avulsos
+    INTEGRATED_ATTRIBUTES = {
+        "capa dura", "capa flexivel", "capa flexível", "capa cartao", "capa cartão",
+        "capa de couro", "capa comum", "capa cristal"
+    }
+
+    SYNONYM_GROUPS = [
+        {"caderno para desenho", "caderno de desenho", "caderno desenho", "sketchbook", "bloco de desenho", "bloco desenho", "bloco canson", "caderno artistico", "croqui"},
+        {"celular", "smartphone", "telefone", "aparelho celular"},
+        {"fone de ouvido", "headphone", "headset", "earphone", "earbuds", "fone bluetooth"},
+        {"notebook", "laptop", "computador portatil"},
+    ]
 
     HIGH_TRUST_LEVELS = {"platinum", "gold", "leader", "official_store", "mercado_lider_platinum"}
 
@@ -33,12 +46,23 @@ class JevClassifier:
         lower_query = target_query.lower()
 
         # 1. Detecção de falso positivo / incompatibilidade de acessório
-        # Se o usuário procura um smartphone/console e o título é claramente uma capinha/película
         is_valid_product = True
-        words_in_title = set(lower_title.replace("-", " ").replace("/", " ").split())
-        matched_accessory = words_in_title.intersection(self.ACCESSORY_KEYWORDS)
         
-        if matched_accessory and not any(kw in lower_query for kw in self.ACCESSORY_KEYWORDS):
+        # Sanitiza atributos integrados legítimos (ex: "capa dura") para evitar falso positivo
+        sanitized_title = lower_title
+        for attr in self.INTEGRATED_ATTRIBUTES:
+            sanitized_title = sanitized_title.replace(attr, "attr_integrado")
+
+        words_in_title = set(sanitized_title.replace("-", " ").replace("/", " ").split())
+        matched_accessory = words_in_title.intersection(self.ACCESSORY_KEYWORDS)
+
+        # "capa" avulsa com preposição de destinação (ex: "capa para caderno") é acessório real
+        if "capa para " in lower_title or "capa p/ " in lower_title or ("capa" in words_in_title and "para" in words_in_title):
+            matched_accessory.add("capa")
+        elif "capa" in words_in_title and not any(kw in lower_query for kw in ["livro", "caderno", "agenda", "biblia", "bíblia"]):
+            matched_accessory.add("capa")
+        
+        if matched_accessory and not any(kw in lower_query for kw in self.ACCESSORY_KEYWORDS | {"capa"}):
             is_valid_product = False
             risk_flags.append("ACCESSORY_MISMATCH")
 

@@ -50,3 +50,43 @@ def test_classifier_evaluates_unknown_or_low_reputation_seller():
     assert result.is_valid_product is True
     assert result.trust_score <= 0.60
     assert "LOW_SELLER_REPUTATION" in result.risk_flags
+
+
+def test_classifier_allows_capa_dura_in_stationery_and_books():
+    classifier = JevClassifier()
+    # "Capa dura" em caderno não é acessório de celular
+    result = classifier.classify_listing(
+        title="Caderno De Desenho Capa Dura Spiral 80 Fls",
+        price=29.90,
+        seller_info={"reputation_level": "gold", "sales_count": 300},
+        target_query="caderno para desenho"
+    )
+    assert result.is_valid_product is True
+    assert "ACCESSORY_MISMATCH" not in result.risk_flags
+
+
+def test_classifier_still_blocks_real_notebook_cover_accessories():
+    classifier = JevClassifier()
+    # Capa avulsa para caderno deve ser bloqueada quando a busca é pelo caderno
+    result = classifier.classify_listing(
+        title="Capa Para Caderno Universitário Transparente Pct C/ 10",
+        price=15.90,
+        seller_info={"reputation_level": "gold", "sales_count": 200},
+        target_query="caderno para desenho"
+    )
+    assert result.is_valid_product is False
+    assert "ACCESSORY_MISMATCH" in result.risk_flags
+
+
+def test_classifier_understands_synonyms():
+    classifier = JevClassifier()
+    # Sketchbook é sinônimo válido para caderno de desenho
+    result = classifier.classify_listing(
+        title="Sketchbook Artístico Profissional A4 200g",
+        price=45.00,
+        seller_info={"reputation_level": "platinum", "sales_count": 1000},
+        target_query="caderno para desenho"
+    )
+    assert result.is_valid_product is True
+    assert result.trust_score >= 0.85
+
