@@ -149,9 +149,16 @@ class AsaasClient:
             payment_data = resp.json()
             payment_id = payment_data.get("id")
 
-            # 3. Busca QR Code e Copia-e-Cola
-            qr_resp = await client.get(f"payments/{payment_id}/pixQrCode")
-            qr_data = qr_resp.json() if qr_resp.status_code == 200 else {}
+            # 3. Busca QR Code e Copia-e-Cola com retry resiliente
+            qr_data = {}
+            for _ in range(4):
+                qr_resp = await client.get(f"payments/{payment_id}/pixQrCode")
+                if qr_resp.status_code == 200:
+                    qr_data = qr_resp.json()
+                    if qr_data.get("payload"):
+                        break
+                import asyncio
+                await asyncio.sleep(0.5)
 
             return {
                 "payment_id": payment_id,

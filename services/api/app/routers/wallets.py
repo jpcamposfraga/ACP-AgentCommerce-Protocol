@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, update, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.core.config import settings
+from app.core.config import settings, get_settings
 from app.models.wallet import Wallet
 from app.models.transaction import Transaction
 from app.schemas.wallet import WalletCreate, WalletResponse, TopupRequest, DebitRequest, DebitResponse
@@ -86,13 +86,19 @@ async def create_wallet_pix_deposit(
             api_key=settings.ASAAS_API_KEY,
             base_url=settings.ASAAS_BASE_URL
         )
-        charge = await client.create_pix_charge(
-            value=payload.amount,
-            description=f"Recarga Carteira ACP #{wallet_id}",
-            external_reference=wallet_id,
-            customer_name=payload.customer_name,
-            customer_cpf_cnpj=payload.customer_cpf_cnpj
-        )
+        try:
+            charge = await client.create_pix_charge(
+                value=payload.amount,
+                description=f"Recarga Carteira ACP #{wallet_id}",
+                external_reference=wallet_id,
+                customer_name=payload.customer_name,
+                customer_cpf_cnpj=payload.customer_cpf_cnpj
+            )
+        except ValueError as err:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(err)
+            )
         return PixDepositResponse(
             payment_id=charge["payment_id"],
             wallet_id=wallet_id,

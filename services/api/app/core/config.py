@@ -1,4 +1,10 @@
+import os
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+ROOT_ENV = BASE_DIR.parent.parent / ".env"
+LOCAL_ENV = BASE_DIR / ".env"
 
 class Settings(BaseSettings):
     ENV: str = "development"
@@ -12,9 +18,13 @@ class Settings(BaseSettings):
     ASAAS_WEBHOOK_ACCESS_TOKEN: str = ""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(str(LOCAL_ENV), str(ROOT_ENV), ".env"),
         env_file_encoding="utf-8",
         extra="ignore"
     )
 
-settings = Settings()
+def get_settings() -> Settings:
+    return Settings()
+
+settings = get_settings()
+

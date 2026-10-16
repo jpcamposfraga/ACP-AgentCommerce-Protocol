@@ -33,3 +33,9 @@ async def setup_db():
     yield
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+@pytest_asyncio.fixture(autouse=True)
+def hermetic_asaas_env(monkeypatch):
+    import app.core.config
+    monkeypatch.setattr(app.core.config.settings, "ASAAS_API_KEY", "")
+    monkeypatch.setattr(app.core.config.settings, "ASAAS_WEBHOOK_ACCESS_TOKEN", "")
