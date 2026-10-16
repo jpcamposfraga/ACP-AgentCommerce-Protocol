@@ -33,6 +33,31 @@ async def test_baas_client_send_pix_payout():
 
 
 @pytest.mark.asyncio
+async def test_baas_client_delegates_to_asaas_when_configured(monkeypatch):
+    baas = BaaSPixClient()
+    monkeypatch.setattr("app.core.config.settings.ASAAS_API_KEY", "real_key_123")
+
+    async def mock_transfer(self, value, pix_key, pix_key_type=None, description=""):
+        return {
+            "status": "DONE",
+            "endToEndIdentifier": "E_REAL_1234567890",
+            "value": value,
+            "netValue": value
+        }
+
+    monkeypatch.setattr("app.services.baas_asaas.AsaasClient.send_pix_transfer", mock_transfer)
+
+    result = await baas.send_pix_payout(
+        amount=250.0,
+        pix_key="pix@loja.com",
+        description="Pedido Real #999"
+    )
+    assert result["status"] == "CONFIRMED"
+    assert result["end_to_end_id"] == "E_REAL_1234567890"
+    assert result["amount"] == 250.0
+
+
+@pytest.mark.asyncio
 async def test_webhook_pix_cash_in_credits_wallet(client):
     async with TestAsyncSessionLocal() as session:
         wallet = Wallet(
