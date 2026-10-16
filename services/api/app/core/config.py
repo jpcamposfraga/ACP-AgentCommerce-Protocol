@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     ACP_PLATFORM_FEE_PCT: float = 0.02
     ACP_MIN_CHECK_INTERVAL_SECONDS: int = 60
+    ASAAS_API_KEY: str = ""
+    ASAAS_BASE_URL: str = "https://api.asaas.com/v3"
+    ASAAS_WEBHOOK_ACCESS_TOKEN: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
