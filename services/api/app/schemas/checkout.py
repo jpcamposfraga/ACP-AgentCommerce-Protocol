@@ -66,4 +66,8 @@ class CheckoutResponse(BaseModel):
         default=None,
         description="Detalhes do cartão virtual efêmero gerado para liquidação"
     )
+    is_simulation: bool = Field(
+        default=False,
+        description="Indica se a operação ocorreu em ambiente de teste/sandbox simulado"
+    )
     message: str | None = Field(default=None, description="Mensagem descritiva ou motivo de falha")

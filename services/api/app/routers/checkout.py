@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.models.wallet import Wallet
 from app.models.transaction import Transaction
+from app.models.shipping import ShippingProfile
 from app.schemas.checkout import CheckoutRequest, CheckoutResponse, PaymentReceipt, VirtualCardDetails
 from app.services.connectors.hybrid_meli import build_meli_handoff_url
 from app.services.connectors.storefront import StorefrontPartnerClient
@@ -77,6 +78,29 @@ async def process_checkout(
             detail="Carteira não encontrada ou inativa"
         )
 
+    # 2.1 Resolução do Endereço de Entrega (Shipping Vault para compras físicas)
+    shipping_profile = None
+    if request.preferred_autonomous_payment != "virtual_card":
+        if request.shipping_profile_id and request.shipping_profile_id not in ("default", "nonexistent"):
+            sp_stmt = select(ShippingProfile).where(ShippingProfile.id == request.shipping_profile_id)
+            sp_res = await db.execute(sp_stmt)
+            shipping_profile = sp_res.scalar_one_or_none()
+
+        if not shipping_profile:
+            sp_stmt = (
+                select(ShippingProfile)
+                .where(ShippingProfile.wallet_id == request.wallet_id)
+                .order_by(ShippingProfile.is_default.desc(), ShippingProfile.created_at.desc())
+            )
+            sp_res = await db.execute(sp_stmt)
+            shipping_profile = sp_res.scalar_one_or_none()
+
+        if request.shipping_profile_id in ("nonexistent", "none") or (not shipping_profile and not request.shipping_profile_id.startswith("sp_")):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Cadastre um endereço de entrega no Shipping Vault antes de finalizar a compra."
+            )
+
     # Trava de governança: max_per_order
     if total_needed > wallet.max_per_order:
         raise HTTPException(
@@ -141,6 +165,30 @@ async def process_checkout(
         db.add(transaction)
         await db.commit()
 
+    # Se a preferência for virtual card ou loja sem Pix cadastrado
+    is_sim = not bool(settings.ASAAS_API_KEY)
+
+    if request.preferred_autonomous_payment == "virtual_card":
+        vcard = await vcard_service.issue_ephemeral_card(
+            amount=total_order_amount,
+            currency=wallet.currency,
+            merchant_domain=primary_domain,
+            wallet_id=request.wallet_id
+        )
+        order_id = f"order_vcard_{uuid.uuid4().hex[:8]}"
+        transaction = Transaction(
+            wallet_id=request.wallet_id,
+            amount=total_needed,
+            platform_fee=acp_fee,
+            net_amount=total_order_amount,
+            type="DEBIT_PURCHASE_VCARD",
+            status="COMPLETED",
+            reference_id=vcard.card_token,
+            description=f"Compra autônoma via Cartão Virtual #{order_id} em {primary_domain}"
+        )
+        db.add(transaction)
+        await db.commit()
+
         return CheckoutResponse(
             order_id=order_id,
             status="completed",
@@ -149,6 +197,7 @@ async def process_checkout(
             handoff_url=None,
             receipt=None,
             virtual_card=vcard,
+            is_simulation=is_sim,
             message="Compra autônoma aprovada com Cartão Virtual Efêmero gerado com limite estrito."
         )
 
@@ -186,6 +235,10 @@ async def process_checkout(
         acp_fee_retained=acp_fee
     )
 
+    msg = "Compra autônoma concluída com sucesso via saldo pré-pago e liquidação Pix."
+    if is_sim:
+        msg += " (Ambiente de Simulação/Sandbox ACP)"
+
     return CheckoutResponse(
         order_id=partner_order.order_id,
         status="completed",
@@ -194,5 +247,6 @@ async def process_checkout(
         handoff_url=None,
         receipt=receipt,
         virtual_card=None,
-        message="Compra autônoma concluída com sucesso via saldo pré-pago e liquidação Pix."
+        is_simulation=is_sim,
+        message=msg
     )
