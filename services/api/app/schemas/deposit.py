@@ -14,4 +14,6 @@ class PixDepositResponse(BaseModel):
     value: float = Field(..., description="Valor nominal da recarga")
     copy_paste_payload: str = Field(..., description="Código Pix Copia-e-Cola (padrão EMV QRCPS)")
     qr_code_base64: str = Field(..., description="QR Code em imagem codificada Base64")
+    qr_code_terminal: str = Field(default="", description="QR Code desenhado em blocos UTF-8 para terminal ou chat")
+    qr_code_url: str = Field(default="", description="URL HTTP direta para visualização da imagem PNG no navegador")
     expiration_date: str = Field(..., description="Data/hora de expiração do QR Code")

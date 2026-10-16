@@ -1,6 +1,7 @@
 import uuid
+import base64
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy import select, update, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
@@ -10,8 +11,10 @@ from app.models.transaction import Transaction
 from app.schemas.wallet import WalletCreate, WalletResponse, TopupRequest, DebitRequest, DebitResponse
 from app.schemas.deposit import PixDepositRequest, PixDepositResponse
 from app.services.baas_asaas import AsaasClient
+from app.services.qrcode_service import render_terminal_qr, render_png_qr
 
 router = APIRouter(prefix="/api/v1/wallets", tags=["Wallets"])
+_PIX_QR_CACHE: dict[str, bytes] = {}
 
 @router.post("", response_model=WalletResponse, status_code=status.HTTP_201_CREATED)
 async def create_wallet(payload: WalletCreate, db: AsyncSession = Depends(get_db)):
@@ -99,12 +102,27 @@ async def create_wallet_pix_deposit(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(err)
             )
+        payment_id = charge["payment_id"]
+        copy_paste = charge["copy_paste_payload"]
+        encoded_image = charge.get("encoded_image") or ""
+        if encoded_image.startswith("data:image"):
+            encoded_image = encoded_image.split(",", 1)[-1]
+        try:
+            png_bytes = base64.b64decode(encoded_image) if encoded_image else render_png_qr(copy_paste)
+        except Exception:
+            png_bytes = render_png_qr(copy_paste)
+        _PIX_QR_CACHE[payment_id] = png_bytes
+        qr_terminal = render_terminal_qr(copy_paste)
+        qr_url = f"/api/v1/wallets/{wallet_id}/pix-deposit/{payment_id}/qrcode.png"
+
         return PixDepositResponse(
-            payment_id=charge["payment_id"],
+            payment_id=payment_id,
             wallet_id=wallet_id,
             value=charge["value"],
-            copy_paste_payload=charge["copy_paste_payload"],
+            copy_paste_payload=copy_paste,
             qr_code_base64=charge.get("encoded_image") or "data:image/png;base64,...",
+            qr_code_terminal=qr_terminal,
+            qr_code_url=qr_url,
             expiration_date=charge.get("expiration_date") or (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
         )
 
@@ -116,16 +134,34 @@ async def create_wallet_pix_deposit(
         f"520400005303986540{payload.amount:.2f}5802BR5916ACP Carteira"
         f"6009Sao Paulo62070503***6304ABCD"
     )
-    mock_qr = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    png_bytes = render_png_qr(mock_copy_paste)
+    _PIX_QR_CACHE[payment_id] = png_bytes
+    mock_qr_b64 = "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+    qr_terminal = render_terminal_qr(mock_copy_paste)
+    qr_url = f"/api/v1/wallets/{wallet_id}/pix-deposit/{payment_id}/qrcode.png"
 
     return PixDepositResponse(
         payment_id=payment_id,
         wallet_id=wallet_id,
         value=round(payload.amount, 2),
         copy_paste_payload=mock_copy_paste,
-        qr_code_base64=mock_qr,
+        qr_code_base64=mock_qr_b64,
+        qr_code_terminal=qr_terminal,
+        qr_code_url=qr_url,
         expiration_date=exp
     )
+
+
+@router.get("/{wallet_id}/pix-deposit/{payment_id}/qrcode.png")
+async def get_pix_deposit_qr_image(wallet_id: str, payment_id: str):
+    """
+    Retorna a imagem PNG direta do QR Code de recarga para exibição no navegador.
+    """
+    png_bytes = _PIX_QR_CACHE.get(payment_id)
+    if not png_bytes:
+        # Fallback gerado a partir do payment_id se o servidor reiniciou
+        png_bytes = render_png_qr(f"PIX_CHARGE_{payment_id}")
+    return Response(content=png_bytes, media_type="image/png")
 
 
 @router.post("/{wallet_id}/debit", response_model=DebitResponse)
