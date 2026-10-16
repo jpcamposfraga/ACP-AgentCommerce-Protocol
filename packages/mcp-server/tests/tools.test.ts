@@ -5,7 +5,7 @@ import { registerAllTools } from '../dist/tools/index.js';
 import { AcpApiClient } from '../dist/api-client.js';
 
 describe('MCP Tools Registration', () => {
-  test('registers all 4 official ACP tools on McpServer', () => {
+  test('registers all 6 ACP tools on McpServer', () => {
     const server = new McpServer({ name: 'test-server', version: '0.1.0' });
     const mockClient = new AcpApiClient('http://localhost:8000');
 
@@ -16,34 +16,69 @@ describe('MCP Tools Registration', () => {
     assert.ok(registeredToolNames.includes('track_price_and_stock'), 'track_price_and_stock must be registered');
     assert.ok(registeredToolNames.includes('get_merchant_status'), 'get_merchant_status must be registered');
     assert.ok(registeredToolNames.includes('checkout'), 'checkout must be registered');
-    assert.equal(registeredToolNames.length, 4);
+    assert.ok(registeredToolNames.includes('deposit_wallet'), 'deposit_wallet must be registered');
+    assert.ok(registeredToolNames.includes('manage_shipping_address'), 'manage_shipping_address must be registered');
+    assert.equal(registeredToolNames.length, 6);
   });
 
-  test('search_products tool handler executes and returns formatted content', async () => {
+  test('deposit_wallet tool handler returns formatted terminal and url', async () => {
     const server = new McpServer({ name: 'test-server', version: '0.1.0' });
     const mockClient = {
-      searchProducts: async (params: any) => ({
-        results: [
-          {
-            product_id: 'MLB-1001',
-            title: 'Apple iPhone 15 128GB',
-            pricing: { best_effective_price: 4769.0 }
-          }
-        ],
-        total_results: 1
+      depositWallet: async (params: any) => ({
+        payment_id: 'pay_123',
+        wallet_id: params.wallet_id,
+        value: params.amount,
+        copy_paste_payload: '00020126580014br.gov.bcb.pix...',
+        qr_code_terminal: '██  ██',
+        qr_code_url: '/api/v1/wallets/w_1/pix-deposit/pay_123/qrcode.png',
+        expiration_date: '2026-10-17'
       })
     } as unknown as AcpApiClient;
 
     registerAllTools(server, mockClient);
 
-    const tool = (server as any)._registeredTools['search_products'];
-    assert.ok(tool, 'search_products tool exists');
+    const tool = (server as any)._registeredTools['deposit_wallet'];
+    assert.ok(tool, 'deposit_wallet tool exists');
 
-    const result = await tool.handler({ query: 'iPhone 15' }, {});
+    const result = await tool.handler({ wallet_id: 'w_1', amount: 25.0 }, {});
     assert.ok(result.content);
     assert.equal(result.content[0].type, 'text');
-    const parsed = JSON.parse(result.content[0].text);
-    assert.equal(parsed.total_results, 1);
-    assert.equal(parsed.results[0].product_id, 'MLB-1001');
+    assert.ok(result.content[0].text.includes('QR Code'));
+    assert.ok(result.content[0].text.includes('00020126580014br.gov.bcb.pix...'));
+  });
+
+  test('manage_shipping_address tool handler registers address', async () => {
+    const server = new McpServer({ name: 'test-server', version: '0.1.0' });
+    const mockClient = {
+      createShippingProfile: async (params: any) => ({
+        id: 'sp_new_99',
+        wallet_id: params.wallet_id,
+        recipient_name: params.recipient_name,
+        street: 'Av Paulista',
+        city: 'São Paulo',
+        state: 'SP',
+        is_default: true
+      }),
+      listShippingProfiles: async () => []
+    } as unknown as AcpApiClient;
+
+    registerAllTools(server, mockClient);
+
+    const tool = (server as any)._registeredTools['manage_shipping_address'];
+    assert.ok(tool, 'manage_shipping_address tool exists');
+
+    const result = await tool.handler({
+      action: 'register',
+      wallet_id: 'w_1',
+      recipient_name: 'Carlos Alberto',
+      cpf_cnpj: '12345678909',
+      phone: '11999998888',
+      postal_code: '01310-100',
+      number: '100'
+    }, {});
+    assert.ok(result.content);
+    assert.equal(result.content[0].type, 'text');
+    assert.ok(result.content[0].text.includes('Carlos Alberto'));
+    assert.ok(result.content[0].text.includes('sp_new_99'));
   });
 });

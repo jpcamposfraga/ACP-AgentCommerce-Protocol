@@ -93,6 +93,56 @@ export interface CheckoutResponse {
   message?: string | null;
 }
 
+export interface DepositParams {
+  wallet_id: string;
+  amount: number;
+  customer_name?: string;
+  customer_cpf_cnpj?: string;
+}
+
+export interface DepositResponse {
+  payment_id: string;
+  wallet_id: string;
+  value: number;
+  copy_paste_payload: string;
+  qr_code_base64: string;
+  qr_code_terminal: string;
+  qr_code_url: string;
+  expiration_date: string;
+}
+
+export interface ShippingProfileParams {
+  wallet_id: string;
+  recipient_name: string;
+  cpf_cnpj: string;
+  phone: string;
+  postal_code: string;
+  street?: string;
+  number: string;
+  complement?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+  is_default?: boolean;
+}
+
+export interface ShippingProfileResponse {
+  id: string;
+  wallet_id: string;
+  recipient_name: string;
+  cpf_cnpj: string;
+  phone: string;
+  postal_code: string;
+  street: string;
+  number: string;
+  complement?: string | null;
+  neighborhood: string;
+  city: string;
+  state: string;
+  is_default: boolean;
+  created_at: string;
+}
+
 export class AcpApiClient {
   private baseUrl: string;
 
@@ -153,6 +203,27 @@ export class AcpApiClient {
     return this.request<CheckoutResponse>('/api/v1/checkout', {
       method: 'POST',
       body: JSON.stringify(params)
+    });
+  }
+
+  async depositWallet(params: DepositParams): Promise<DepositResponse> {
+    const { wallet_id, ...body } = params;
+    return this.request<DepositResponse>(`/api/v1/wallets/${wallet_id}/pix-deposit`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+  }
+
+  async createShippingProfile(params: ShippingProfileParams): Promise<ShippingProfileResponse> {
+    return this.request<ShippingProfileResponse>('/api/v1/shipping-profiles', {
+      method: 'POST',
+      body: JSON.stringify(params)
+    });
+  }
+
+  async listShippingProfiles(walletId: string): Promise<ShippingProfileResponse[]> {
+    return this.request<ShippingProfileResponse[]>(`/api/v1/shipping-profiles/wallet/${walletId}`, {
+      method: 'GET'
     });
   }
 }
