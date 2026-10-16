@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     ASAAS_API_KEY: str = ""
     ASAAS_BASE_URL: str = "https://api.asaas.com/v3"
     ASAAS_WEBHOOK_ACCESS_TOKEN: str = ""
+    PLAYWRIGHT_HEADLESS: bool = True
+    PLAYWRIGHT_TIMEOUT_SECONDS: int = 45
 
     model_config = SettingsConfigDict(
         env_file=(str(LOCAL_ENV), str(ROOT_ENV), ".env"),
