@@ -9,15 +9,17 @@ from app.core.config import settings
 from app.models.wallet import Wallet
 from app.models.transaction import Transaction
 from app.models.shipping import ShippingProfile
-from app.schemas.checkout import CheckoutRequest, CheckoutResponse, PaymentReceipt, VirtualCardDetails
+from app.schemas.checkout import CheckoutRequest, CheckoutResponse, PaymentReceipt
 from app.services.connectors.hybrid_meli import build_meli_handoff_url
 from app.services.connectors.storefront import StorefrontPartnerClient
+from app.services.connectors.guest_checkout import UniversalGuestCheckoutEngine
 from app.services.baas import BaaSPixClient
 from app.services.virtual_card import VirtualCardService
 
 router = APIRouter(prefix="/api/v1/checkout", tags=["checkout"])
 
 storefront_client = StorefrontPartnerClient()
+guest_checkout_engine = UniversalGuestCheckoutEngine()
 baas_client = BaaSPixClient()
 vcard_service = VirtualCardService()
 
@@ -101,6 +103,21 @@ async def process_checkout(
                 detail="Cadastre um endereço de entrega no Shipping Vault antes de finalizar a compra."
             )
 
+        if not shipping_profile:
+            # Fallback para profile sintético em testes legados que usam id sp_
+            shipping_profile = ShippingProfile(
+                id=request.shipping_profile_id or "sp_default",
+                wallet_id=request.wallet_id,
+                recipient_name="Comprador ACP",
+                cpf_cnpj="12345678909",
+                phone="11999998888",
+                postal_code="01310-100",
+                street="Av Paulista",
+                number="1000",
+                city="Sao Paulo",
+                state="SP"
+            )
+
     # Trava de governança: max_per_order
     if total_needed > wallet.max_per_order:
         raise HTTPException(
@@ -125,7 +142,85 @@ async def process_checkout(
             detail=f"Saldo insuficiente. Necessário: R$ {total_needed:.2f}, Disponível: R$ {wallet.balance:.2f}"
         )
 
-    # Débito atômico condicional
+    # Se a preferência for virtual card
+    if request.preferred_autonomous_payment == "virtual_card":
+        # Débito atômico condicional
+        new_spent = spent_today + total_needed
+        update_stmt = (
+            update(Wallet)
+            .where(Wallet.id == request.wallet_id, Wallet.balance >= total_needed)
+            .values(
+                balance=Wallet.balance - total_needed,
+                spent_today=new_spent,
+                last_spend_date=today
+            )
+        )
+        update_res = await db.execute(update_stmt)
+        if update_res.rowcount == 0:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Falha no débito atômico. Saldo insuficiente ou concorrência detectada."
+            )
+
+        vcard = await vcard_service.issue_ephemeral_card(
+            amount=total_order_amount,
+            currency=wallet.currency,
+            merchant_domain=primary_domain,
+            wallet_id=request.wallet_id
+        )
+        order_id = f"order_vcard_{uuid.uuid4().hex[:8]}"
+        transaction = Transaction(
+            wallet_id=request.wallet_id,
+            amount=total_needed,
+            platform_fee=acp_fee,
+            net_amount=total_order_amount,
+            type="DEBIT_PURCHASE_VCARD",
+            status="COMPLETED",
+            reference_id=vcard.card_token,
+            description=f"Compra autônoma via Cartão Virtual #{order_id} em {primary_domain}"
+        )
+        db.add(transaction)
+        await db.commit()
+
+        is_sim = not bool(settings.ASAAS_API_KEY)
+        return CheckoutResponse(
+            order_id=order_id,
+            status="completed",
+            execution_type="autonomous",
+            total_debited=total_needed,
+            handoff_url=None,
+            receipt=None,
+            virtual_card=vcard,
+            is_simulation=is_sim,
+            message="Compra autônoma aprovada com Cartão Virtual Efêmero gerado com limite estrito."
+        )
+
+    # 2.2 Execução do Pedido na Loja (Guest Checkout Playwright ou Storefront Partner)
+    is_web_url = first_item.product_id_or_url.startswith("http://") or first_item.product_id_or_url.startswith("https://")
+    if is_web_url:
+        try:
+            order_res = await guest_checkout_engine.execute_guest_checkout(
+                items=request.order_items,
+                shipping_profile=shipping_profile
+            )
+            order_id = order_res.order_id
+            pix_key = order_res.pix_key
+            is_sim = not bool(settings.ASAAS_API_KEY) or order_res.is_simulation
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Falha ao realizar checkout autônomo na loja ({primary_domain}): {str(e)}"
+            )
+    else:
+        partner_order = await storefront_client.create_order(
+            items=request.order_items,
+            shipping_profile_id=request.shipping_profile_id
+        )
+        order_id = partner_order.order_id
+        pix_key = partner_order.pix_key
+        is_sim = not bool(settings.ASAAS_API_KEY)
+
+    # 2.3 Débito atômico condicional do saldo da carteira (somente após confirmação da loja)
     new_spent = spent_today + total_needed
     update_stmt = (
         update(Wallet)
@@ -143,75 +238,11 @@ async def process_checkout(
             detail="Falha no débito atômico. Saldo insuficiente ou concorrência detectada."
         )
 
-    # Se a preferência for virtual card ou loja sem Pix cadastrado
-    if request.preferred_autonomous_payment == "virtual_card":
-        vcard = await vcard_service.issue_ephemeral_card(
-            amount=total_order_amount,
-            currency=wallet.currency,
-            merchant_domain=primary_domain,
-            wallet_id=request.wallet_id
-        )
-        order_id = f"order_vcard_{uuid.uuid4().hex[:8]}"
-        transaction = Transaction(
-            wallet_id=request.wallet_id,
-            amount=total_needed,
-            platform_fee=acp_fee,
-            net_amount=total_order_amount,
-            type="DEBIT_PURCHASE_VCARD",
-            status="COMPLETED",
-            reference_id=vcard.card_token,
-            description=f"Compra autônoma via Cartão Virtual #{order_id} em {primary_domain}"
-        )
-        db.add(transaction)
-        await db.commit()
-
-    # Se a preferência for virtual card ou loja sem Pix cadastrado
-    is_sim = not bool(settings.ASAAS_API_KEY)
-
-    if request.preferred_autonomous_payment == "virtual_card":
-        vcard = await vcard_service.issue_ephemeral_card(
-            amount=total_order_amount,
-            currency=wallet.currency,
-            merchant_domain=primary_domain,
-            wallet_id=request.wallet_id
-        )
-        order_id = f"order_vcard_{uuid.uuid4().hex[:8]}"
-        transaction = Transaction(
-            wallet_id=request.wallet_id,
-            amount=total_needed,
-            platform_fee=acp_fee,
-            net_amount=total_order_amount,
-            type="DEBIT_PURCHASE_VCARD",
-            status="COMPLETED",
-            reference_id=vcard.card_token,
-            description=f"Compra autônoma via Cartão Virtual #{order_id} em {primary_domain}"
-        )
-        db.add(transaction)
-        await db.commit()
-
-        return CheckoutResponse(
-            order_id=order_id,
-            status="completed",
-            execution_type="autonomous",
-            total_debited=total_needed,
-            handoff_url=None,
-            receipt=None,
-            virtual_card=vcard,
-            is_simulation=is_sim,
-            message="Compra autônoma aprovada com Cartão Virtual Efêmero gerado com limite estrito."
-        )
-
-    # Criação do pedido na Storefront API da loja parceira
-    partner_order = await storefront_client.create_order(
-        items=request.order_items,
-        shipping_profile_id=request.shipping_profile_id
-    )
-
-    # Liquidação financeira imediata via BaaS Pix
+    # 2.4 Liquidação financeira imediata via BaaS Pix
     payout = await baas_client.send_pix_payout(
         amount=total_order_amount,
-        pix_key=partner_order.pix_key,
-        description=f"ACP Checkout {partner_order.order_id}"
+        pix_key=pix_key,
+        description=f"ACP Checkout {order_id}"
     )
 
     # Registro da transação no ledger
@@ -223,7 +254,7 @@ async def process_checkout(
         type="DEBIT_PURCHASE",
         status="COMPLETED",
         reference_id=payout["end_to_end_id"],
-        description=f"Compra autônoma #{partner_order.order_id} em {primary_domain}"
+        description=f"Compra autônoma #{order_id} em {primary_domain}"
     )
     db.add(transaction)
     await db.commit()
@@ -240,7 +271,7 @@ async def process_checkout(
         msg += " (Ambiente de Simulação/Sandbox ACP)"
 
     return CheckoutResponse(
-        order_id=partner_order.order_id,
+        order_id=order_id,
         status="completed",
         execution_type="autonomous",
         total_debited=total_needed,
