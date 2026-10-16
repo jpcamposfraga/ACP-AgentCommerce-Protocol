@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, update, case
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +8,8 @@ from app.core.config import settings
 from app.models.wallet import Wallet
 from app.models.transaction import Transaction
 from app.schemas.wallet import WalletCreate, WalletResponse, TopupRequest, DebitRequest, DebitResponse
+from app.schemas.deposit import PixDepositRequest, PixDepositResponse
+from app.services.baas_asaas import AsaasClient
 
 router = APIRouter(prefix="/api/v1/wallets", tags=["Wallets"])
 
@@ -60,6 +63,64 @@ async def topup_wallet(wallet_id: str, payload: TopupRequest, db: AsyncSession =
     await db.commit()
     await db.refresh(wallet)
     return wallet
+
+
+@router.post("/{wallet_id}/pix-deposit", response_model=PixDepositResponse)
+async def create_wallet_pix_deposit(
+    wallet_id: str,
+    payload: PixDepositRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    query = select(Wallet).where(Wallet.id == wallet_id)
+    result = await db.execute(query)
+    wallet = result.scalar_one_or_none()
+    if not wallet:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wallet not found")
+
+    if not wallet.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Wallet is inactive")
+
+    # 1. Se Asaas estiver configurado, cria cobrança real no Asaas
+    if settings.ASAAS_API_KEY:
+        client = AsaasClient(
+            api_key=settings.ASAAS_API_KEY,
+            base_url=settings.ASAAS_BASE_URL
+        )
+        charge = await client.create_pix_charge(
+            value=payload.amount,
+            description=f"Recarga Carteira ACP #{wallet_id}",
+            external_reference=wallet_id,
+            customer_name=payload.customer_name,
+            customer_cpf_cnpj=payload.customer_cpf_cnpj
+        )
+        return PixDepositResponse(
+            payment_id=charge["payment_id"],
+            wallet_id=wallet_id,
+            value=charge["value"],
+            copy_paste_payload=charge["copy_paste_payload"],
+            qr_code_base64=charge.get("encoded_image") or "data:image/png;base64,...",
+            expiration_date=charge.get("expiration_date") or (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        )
+
+    # 2. Modo Sandbox / Mock
+    payment_id = f"pay_sandbox_{uuid.uuid4().hex[:10]}"
+    exp = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    mock_copy_paste = (
+        f"00020126580014br.gov.bcb.pix0136{uuid.uuid4()}"
+        f"520400005303986540{payload.amount:.2f}5802BR5916ACP Carteira"
+        f"6009Sao Paulo62070503***6304ABCD"
+    )
+    mock_qr = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+
+    return PixDepositResponse(
+        payment_id=payment_id,
+        wallet_id=wallet_id,
+        value=round(payload.amount, 2),
+        copy_paste_payload=mock_copy_paste,
+        qr_code_base64=mock_qr,
+        expiration_date=exp
+    )
+
 
 @router.post("/{wallet_id}/debit", response_model=DebitResponse)
 async def debit_wallet(wallet_id: str, payload: DebitRequest, db: AsyncSession = Depends(get_db)):
